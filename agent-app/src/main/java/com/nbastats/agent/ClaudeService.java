@@ -243,7 +243,9 @@ public class ClaudeService {
 				tool returns an error or doesn't have what you need, say so plainly \
 				instead of guessing.
 
-				Keep answers short and mention which season the numbers are from.
+				Keep answers short and mention which season the numbers are from. Write \
+				plain text without Markdown, because the web page shows your answer \
+				exactly as written.
 				""".formatted(LocalDate.now());
 	}
 

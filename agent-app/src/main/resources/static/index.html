@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<!--
+  The app's web page. Spring Boot automatically serves files in the "static" folder,
+  and index.html is what you get at http://localhost:8080/
+
+  A web page has three layers:
+    HTML        what's on the page
+    CSS         how it looks (the <style> section)
+    JavaScript  what it does (the <script> section)
+-->
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>NBA Stats Agent</title>
+	<style>
+		/* Lets the browser match the computer's light or dark mode. */
+		:root {
+			color-scheme: light dark;
+			--accent: light-dark(#b4441c, #f08a5d);
+			--muted: light-dark(#5f6368, #a8adb3);
+			--panel: light-dark(#f4f4f2, #26282b);
+			--error: light-dark(#b3261e, #f2b8b5);
+		}
+
+		body {
+			max-width: 40rem;
+			margin: 0 auto;
+			padding: 3rem 1.25rem;
+			font-family: system-ui, sans-serif;
+			line-height: 1.5;
+		}
+
+		h1 {
+			margin: 0;
+			font-size: 1.75rem;
+		}
+
+		.intro {
+			margin: 0.25rem 0 1.5rem;
+			color: var(--muted);
+		}
+
+		label {
+			display: block;
+			margin-bottom: 0.4rem;
+			font-weight: 600;
+		}
+
+		.ask-row {
+			display: flex;
+			gap: 0.5rem;
+		}
+
+		input {
+			flex: 1;
+			min-width: 0;
+			padding: 0.65rem 0.75rem;
+			border: 1px solid var(--muted);
+			border-radius: 8px;
+			font: inherit;
+		}
+
+		button {
+			padding: 0.65rem 1.1rem;
+			border: 1px solid var(--accent);
+			border-radius: 8px;
+			background: var(--accent);
+			color: light-dark(#fff, #1b1b1b);
+			font: inherit;
+			font-weight: 600;
+			cursor: pointer;
+		}
+
+		button:disabled {
+			opacity: 0.55;
+			cursor: not-allowed;
+		}
+
+		.examples {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.5rem;
+			margin-top: 0.75rem;
+		}
+
+		.examples button {
+			padding: 0.3rem 0.7rem;
+			background: transparent;
+			border-color: var(--muted);
+			color: inherit;
+			font-size: 0.875rem;
+			font-weight: 400;
+		}
+
+		#result {
+			margin-top: 1.5rem;
+			padding: 1rem;
+			border-radius: 8px;
+			background: var(--panel);
+			/* Keeps the line breaks in Claude's answer. */
+			white-space: pre-wrap;
+		}
+
+		#result:empty {
+			display: none;
+		}
+
+		#result.loading {
+			color: var(--muted);
+		}
+
+		#result.error {
+			color: var(--error);
+		}
+	</style>
+</head>
+<body>
+	<h1>NBA Stats Agent</h1>
+	<p class="intro">Ask a basketball question, and an AI agent will look up real stats to answer it.</p>
+
+	<form id="ask-form">
+		<label for="question">Your question</label>
+		<div class="ask-row">
+			<input id="question" type="text" maxlength="500" autocomplete="off" required
+				placeholder="Who leads the league in assists?">
+			<button id="ask-button" type="submit">Ask</button>
+		</div>
+	</form>
+
+	<div class="examples">
+		<button type="button">Who leads the league in scoring this season?</button>
+		<button type="button">How is Nikola Jokić playing this season?</button>
+		<button type="button">Who scored more in 2025-26, Stephen Curry or Kevin Durant?</button>
+	</div>
+
+	<!-- aria-live makes screen readers announce the answer when it appears. -->
+	<div id="result" aria-live="polite"></div>
+
+	<script>
+		const form = document.getElementById("ask-form");
+		const questionInput = document.getElementById("question");
+		const askButton = document.getElementById("ask-button");
+		const result = document.getElementById("result");
+		const exampleButtons = document.querySelectorAll(".examples button");
+
+		function showResult(text, style) {
+			// textContent always displays text as plain text. Using innerHTML here would
+			// be unsafe, because the browser would run any HTML that was in the answer.
+			result.textContent = text;
+			result.className = style;
+		}
+
+		// Disabling the buttons during a request stops an accidental double click from
+		// sending, and paying for, the same question twice.
+		function setBusy(busy) {
+			askButton.disabled = busy;
+			exampleButtons.forEach((button) => (button.disabled = busy));
+		}
+
+		// "async" lets this function wait for the answer without freezing the page.
+		async function ask(question) {
+			setBusy(true);
+			showResult("Looking up the stats...", "loading");
+
+			try {
+				const response = await fetch("/ask", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ question }),
+				});
+				const data = await response.json();
+
+				if (response.ok) {
+					showResult(data.answer, "");
+				} else {
+					showResult(data.error, "error");
+				}
+			} catch {
+				// fetch fails like this when the Java app isn't running or can't be reached.
+				showResult("Couldn't reach the app. Check that it's running and try again.", "error");
+			} finally {
+				setBusy(false);
+			}
+		}
+
+		form.addEventListener("submit", (event) => {
+			// By default a form reloads the page when submitted, which we don't want.
+			event.preventDefault();
+			const question = questionInput.value.trim();
+			if (question) {
+				ask(question);
+			}
+		});
+
+		exampleButtons.forEach((button) => {
+			button.addEventListener("click", () => {
+				questionInput.value = button.textContent;
+				ask(button.textContent);
+			});
+		});
+	</script>
+</body>
+</html>
