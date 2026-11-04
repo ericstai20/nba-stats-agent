@@ -11,9 +11,9 @@ The project has two parts, and they work like a restaurant:
 | Part | Restaurant role | Language | Status |
 |---|---|---|---|
 | `stats-service/` | The kitchen: gets the data ready | Python | Working |
-| `agent-app/` | The waiter: understands the question and asks the kitchen | Java | Not started |
+| `agent-app/` | The waiter: understands the question and asks the kitchen | Java | Working, with one tool so far |
 
-A question will travel like this once both parts exist:
+A question travels like this:
 
 ```
 Me -> Java app -> Claude decides which stats are needed
@@ -64,6 +64,61 @@ This idea is called **separation of concerns**. Because the two are separate, I 
 - **One error format:** every error looks like `{"error": "message"}`, so the Java app only has to understand one shape.
 - **Handling messy real-world data:** a player traded mid-season has one row per team plus a combined `TOT` row, and the code uses the combined one.
 
+## How the agent app is organized
+
+It uses the same split as the Python service, with the web in one place and each outside service in another:
+
+| File | Job | Python equivalent |
+|---|---|---|
+| `AskController.java` | The front counter: takes a question and sends back the answer | `main.py` |
+| `ClaudeService.java` | Runs the agent loop and defines the tools | No equivalent |
+| `StatsClient.java` | Calls the Python service for stats | No equivalent |
+
+## How the agent loop works
+
+An **agent** is a program where the AI decides which steps to take, and the code carries them out. Claude never touches the stats service. It asks, and my Java code does the work, like a manager asking an assistant to look something up.
+
+1. Send the whole conversation to Claude, along with the list of tools.
+2. Check why Claude stopped:
+   - `end_turn` means it's finished, so return its answer.
+   - `tool_use` means it needs something run, so carry on.
+3. Run each tool it asked for and add the results to the conversation.
+4. Go back to step 1, up to 10 times.
+
+Here's a real log from asking "Who scored more per game in 2025-26, Stephen Curry or Kevin Durant?":
+
+```
+Turn 1: Claude stopped because of 'tool_use'
+Claude asked for get_player_stats with {name=Stephen Curry, season=2025-26}
+Claude asked for get_player_stats with {name=Kevin Durant, season=2025-26}
+Turn 2: Claude stopped because of 'end_turn'
+```
+
+### Rules worth remembering
+
+- **Claude has no memory between requests.** Every request includes the whole conversation so far, which is also why longer loops cost more.
+- **A tool definition is a description, not code.** Claude reads the name, description and inputs to decide when to use a tool, so clear wording matters.
+- **Results go back together.** If Claude asks for two tools in one turn, both results go back in one message, each with the ID of the request it answers.
+- **Errors go back to Claude too.** A result marked as an error lets Claude explain the problem. When I shut down the Python service, it said it couldn't reach the stats and wouldn't guess.
+- **Loops need a limit.** Every trip is a paid request, so the limit stops a confused agent from spending forever.
+- **Claude has no clock.** The instructions tell it today's date, or it wouldn't know which season "this season" means.
+
+## Java and Spring Boot terms
+
+| Term | What it means | Analogy or Python equivalent |
+|---|---|---|
+| **JDK** | The tools for building and running Java programs | Installing Python itself |
+| **LTS (long-term support)** | A version that gets updates for years. I chose Java 25 for this reason | Buying a car with a long warranty |
+| **Maven** | Downloads libraries and builds the project | `pip`, plus a build step |
+| **`pom.xml`** | Lists the project's libraries and settings | `requirements.txt` |
+| **Maven wrapper (`mvnw`)** | A script that fetches the right Maven version, so there's nothing extra to install | - |
+| **Spring Boot** | The framework that handles the web server side | FastAPI |
+| **Package** | The folder-based address for code, like `com.nbastats.agent`, that prevents name clashes | A mailing address |
+| **Annotation** | A label like `@Service` that tells Spring how to treat a class | A decorator like `@app.get` |
+| **Record** | A short way to write a class that only holds data | A form with fixed fields |
+| **Compiler** | Checks and translates all the code before it runs, so some mistakes get caught early | Python mostly finds these while running |
+| **SDK** | An official library for calling a service, like Anthropic's for Claude | `nba_api`, though that one is unofficial |
+
 ## HTTP status codes
 
 A status code is a short, standard signal of how a request went. This service uses:
@@ -85,6 +140,9 @@ A status code is a short, standard signal of how a request went. This service us
 | **Staging (`git add`)** | Choosing which changes go in the next commit |
 | **Push** | Copying commits from my computer to GitHub |
 | **`.gitignore`** | A list of files Git should never save |
+| **Pull request** | A GitHub page that shows my changes before they're added to `main` |
+| **Merge** | Adding a branch's work into another branch, like `main` |
+| **Pull (`git pull`)** | Copying new commits from GitHub to my computer. I need this after merging on GitHub |
 
 **Never commit `.env`.** It holds my secret API key, and `.gitignore` is what keeps it out of Git. `.env.example` is the safe template with placeholders, which is why it can be saved in Git.
 
@@ -112,6 +170,15 @@ VS Code once said `"math" is not defined` because it checked the file just befor
 ### Restart the server after changing code
 The server only loads the code when it starts, so it keeps using the old version until it's restarted. (Adding `--reload` to the uvicorn command makes it restart automatically while developing.)
 
+### Compiler errors are helpful
+My first version of the tool input code didn't compile, because of a wrong assumption about what an SDK method returns. The compiler caught it before anything ran, so it cost no time debugging and no API credits. The error also pointed to a cleaner approach: converting the input straight into a record.
+
+### Tell the AI what to do when things go wrong
+The instructions tell Claude to base answers only on tool results and to say so plainly if something fails. That's why it reported the outage instead of inventing a number. It's worth testing failures for an AI too, because a confident wrong answer is harder to spot than an error message.
+
+### Handle API keys like passwords
+A key can spend real money. It only belongs in `.env`, never in code or chat. If one leaks, delete it in the Anthropic console and create a new one. Claude.ai subscriptions and API credits are separate, too.
+
 ## Commands I'll use a lot
 
 Run these in PowerShell, starting from the project folder.
@@ -138,16 +205,43 @@ git commit -m "Message"     # Save the snapshot
 git log --oneline           # Show past commits
 ```
 
+**Run the whole agent.** This takes two terminals, because both apps need to be running, and the Java app must start from the `agent-app` folder to find `.env`:
+```powershell
+# Terminal 1
+cd stats-service
+.\venv\Scripts\python.exe -m uvicorn main:app --port 8000
+
+# Terminal 2
+cd agent-app
+.\mvnw.cmd spring-boot:run
+```
+
+**Ask the agent a question (each one spends a little of my credits):**
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:8080/ask -Method Post -ContentType 'application/json' -Body '{"question":"Who scored more per game in 2025-26, Stephen Curry or Kevin Durant?"}'
+```
+
+**Build the Java app and run its tests:**
+```powershell
+cd agent-app
+.\mvnw.cmd test
+```
+
 ## Practice ideas
 
 1. Open the `/docs` page and trigger each status code in the table above.
 2. Add `FG3A` (three-pointers attempted per game) to `LEADER_STATS` in `nba_client.py`. It's one line. Restart the server and try `/leaders?stat=FG3A`.
 3. Read `current_season()` in `nba_client.py` and work out what it returns for January 2027 and for September 2027.
 4. Change the 70% games minimum and predict what happens to the `/leaders` results before you run it.
+5. Ask the agent a question and follow the log. Before you run it, predict how many turns and tool calls it will take.
+6. Change `MAX_TURNS` in `ClaudeService.java` to 1, ask a stats question, and work out why you get that reply. Then change it back.
+7. Read `systemPrompt()` in `ClaudeService.java` and change "Keep answers short" to something else. See how the answers change.
 
 ## Still to learn
 
-- [ ] Automated tests: programs that re-check my code with one command
-- [ ] Building the Java app
-- [ ] How an AI agent uses tools: how Claude decides which endpoint to call
-- [ ] Merging a branch into `main` and pushing to GitHub
+- [x] Merging a branch into `main` and pushing to GitHub
+- [x] Creating a Java app with Spring Boot
+- [x] How an AI agent uses tools, and writing the loop myself
+- [ ] Giving the agent more tools
+- [ ] Building a web page for the app
+- [ ] Automated tests: programs that re-check my code with one command, including a fake Claude so they cost nothing
