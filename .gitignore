@@ -1,0 +1,28 @@
+# .gitignore tells Git which files to never track or upload.
+# This file was created before anything else so a secret can't slip in early.
+
+# --- Secrets ---
+# .env holds your real API key. It must NEVER reach GitHub.
+.env
+.env.*
+# The "!" makes an exception: the example file has placeholders only, so share it.
+!.env.example
+
+# --- Java / Maven build output (regenerated on every build) ---
+target/
+
+# --- Python ---
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# --- IDE and editor settings (personal to your computer) ---
+.idea/
+.vscode/
+*.iml
+.claude/
+
+# --- Operating system clutter ---
+Thumbs.db
+.DS_Store
