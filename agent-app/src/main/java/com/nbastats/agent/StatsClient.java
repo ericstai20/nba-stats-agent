@@ -37,6 +37,24 @@ public class StatsClient {
 		this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(timeouts).build();
 	}
 
+	/** Finds players whose name contains the search text. */
+	public StatsResult searchPlayers(String name) {
+		return get("/players/search", Map.of("name", name));
+	}
+
+	/** Gets the league leaders in a stat. Null means use the service's default. */
+	public StatsResult getLeagueLeaders(String stat, String season, Integer topN) {
+		Map<String, String> params = new HashMap<>();
+		params.put("stat", stat);
+		if (season != null) {
+			params.put("season", season);
+		}
+		if (topN != null) {
+			params.put("top_n", topN.toString());
+		}
+		return get("/leaders", params);
+	}
+
 	/** Gets one player's stats. A null season means the current season. */
 	public StatsResult getPlayerStats(String name, String season) {
 		Map<String, String> params = new HashMap<>();

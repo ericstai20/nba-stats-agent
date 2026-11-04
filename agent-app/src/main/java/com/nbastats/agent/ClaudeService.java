@@ -23,6 +23,7 @@ import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.Tool;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUseBlock;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * Runs the agent loop: ask Claude, run any tools it requests, send back the
@@ -43,9 +44,20 @@ public class ClaudeService {
 	private static final int MAX_TURNS = 10;
 
 	private static final String GET_PLAYER_STATS = "get_player_stats";
+	private static final String SEARCH_PLAYERS = "search_players";
+	private static final String GET_LEAGUE_LEADERS = "get_league_leaders";
 
-	/** The inputs Claude sends for get_player_stats. Season is null if left out. */
+	private static final String SEASON_HELP = "Season such as 2025-26. Leave out for the current season.";
+
+	// The inputs Claude sends for each tool. Optional inputs are null if left out.
 	record PlayerStatsInput(String name, String season) {
+	}
+
+	record SearchPlayersInput(String name) {
+	}
+
+	// Java names don't use underscores, so @JsonProperty links topN to "top_n".
+	record LeagueLeadersInput(String stat, String season, @JsonProperty("top_n") Integer topN) {
 	}
 
 	// A tool definition is a description for Claude, not code it runs. Claude reads
@@ -66,9 +78,57 @@ public class ClaudeService {
 									"description", "The player's full name, such as LeBron James")))
 							.putAdditionalProperty("season", JsonValue.from(Map.of(
 									"type", "string",
-									"description", "Season such as 2025-26. Leave out for the current season.")))
+									"description", SEASON_HELP)))
 							.build())
 					.required(List.of("name"))
+					.putAdditionalProperty("additionalProperties", JsonValue.from(false))
+					.build())
+			.build();
+
+	private static final Tool SEARCH_PLAYERS_TOOL = Tool.builder()
+			.name(SEARCH_PLAYERS)
+			.description("""
+					Find NBA players, past and present, whose name contains the search \
+					text. Returns names and IDs but no stats. Use this when you're unsure \
+					of a player's full name or a name matched several players. The \
+					is_active field comes from a list that can lag behind real rosters, \
+					so treat it as a rough guide and don't state it as fact.""")
+			.strict(true)
+			.inputSchema(Tool.InputSchema.builder()
+					.properties(Tool.InputSchema.Properties.builder()
+							.putAdditionalProperty("name", JsonValue.from(Map.of(
+									"type", "string",
+									"description", "All or part of a name, at least 2 characters")))
+							.build())
+					.required(List.of("name"))
+					.putAdditionalProperty("additionalProperties", JsonValue.from(false))
+					.build())
+			.build();
+
+	private static final Tool LEAGUE_LEADERS_TOOL = Tool.builder()
+			.name(GET_LEAGUE_LEADERS)
+			.description("""
+					Get the NBA's top players in one regular-season stat for one season, \
+					counting only players who meet a minimum. The response states the \
+					minimum that was used. Per-game stats are PTS, REB, OREB, DREB, AST, \
+					STL, BLK, TOV, MIN and FG3M (three-pointers made). Shooting \
+					percentages are FG_PCT, FG3_PCT and FT_PCT.""")
+			.strict(true)
+			.inputSchema(Tool.InputSchema.builder()
+					.properties(Tool.InputSchema.Properties.builder()
+							// An "enum" limits an input to a fixed list of allowed values.
+							.putAdditionalProperty("stat", JsonValue.from(Map.of(
+									"type", "string",
+									"enum", List.of("PTS", "REB", "OREB", "DREB", "AST", "STL", "BLK",
+											"TOV", "MIN", "FG3M", "FG_PCT", "FG3_PCT", "FT_PCT"))))
+							.putAdditionalProperty("season", JsonValue.from(Map.of(
+									"type", "string",
+									"description", SEASON_HELP)))
+							.putAdditionalProperty("top_n", JsonValue.from(Map.of(
+									"type", "integer",
+									"description", "How many players to return, 1 to 50. Defaults to 10.")))
+							.build())
+					.required(List.of("stat"))
 					.putAdditionalProperty("additionalProperties", JsonValue.from(false))
 					.build())
 			.build();
@@ -96,6 +156,8 @@ public class ClaudeService {
 				.maxTokens(MAX_TOKENS)
 				.system(systemPrompt())
 				.addTool(PLAYER_STATS_TOOL)
+				.addTool(SEARCH_PLAYERS_TOOL)
+				.addTool(LEAGUE_LEADERS_TOOL)
 				// Effort trades thoroughness against cost. Medium suits a few lookups.
 				.outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.MEDIUM).build())
 				// If Claude's safety checks wrongly decline a request, let Anthropic retry
@@ -142,6 +204,14 @@ public class ClaudeService {
 			case GET_PLAYER_STATS -> {
 				PlayerStatsInput input = toolUse._input().convert(PlayerStatsInput.class);
 				yield stats.getPlayerStats(input.name(), input.season());
+			}
+			case SEARCH_PLAYERS -> {
+				SearchPlayersInput input = toolUse._input().convert(SearchPlayersInput.class);
+				yield stats.searchPlayers(input.name());
+			}
+			case GET_LEAGUE_LEADERS -> {
+				LeagueLeadersInput input = toolUse._input().convert(LeagueLeadersInput.class);
+				yield stats.getLeagueLeaders(input.stat(), input.season(), input.topN());
 			}
 			default -> new StatsClient.StatsResult("{\"error\":\"Unknown tool.\"}", true);
 		};
