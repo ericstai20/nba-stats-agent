@@ -11,7 +11,7 @@ The project has two parts, and they work like a restaurant:
 | Part | Restaurant role | Language | Status |
 |---|---|---|---|
 | `stats-service/` | The kitchen: gets the data ready | Python | Working |
-| `agent-app/` | The waiter: understands the question and asks the kitchen | Java | Working, with one tool so far |
+| `agent-app/` | The waiter: understands the question and asks the kitchen | Java | Working, with three tools |
 
 A question travels like this:
 
@@ -93,6 +93,25 @@ Claude asked for get_player_stats with {name=Stephen Curry, season=2025-26}
 Claude asked for get_player_stats with {name=Kevin Durant, season=2025-26}
 Turn 2: Claude stopped because of 'end_turn'
 ```
+
+### The agent's tools
+
+| Tool | What it's for | Calls |
+|---|---|---|
+| `get_player_stats` | One player's stats for a season | `/players/stats` |
+| `search_players` | Finding a player when a name is unclear | `/players/search` |
+| `get_league_leaders` | The top players in a stat | `/leaders` |
+
+There's no tool for `/compare`, because Claude can compare two players by looking up each one. Fewer tools means fewer choices to get wrong.
+
+Claude can also chain tools, using one result to decide the next step. Nobody told it these steps for "Who led the league in scoring in 2025-26, and how many assists did that player average?". It worked them out itself:
+
+```
+Claude asked for get_league_leaders with {stat=PTS, season=2025-26, top_n=1}
+Claude asked for get_player_stats with {name=Luka Dončić, season=2025-26}
+```
+
+That's the difference between an agent and a fixed script: the question decides the path.
 
 ### Rules worth remembering
 
@@ -176,6 +195,9 @@ My first version of the tool input code didn't compile, because of a wrong assum
 ### Tell the AI what to do when things go wrong
 The instructions tell Claude to base answers only on tool results and to say so plainly if something fails. That's why it reported the outage instead of inventing a number. It's worth testing failures for an AI too, because a confident wrong answer is harder to spot than an error message.
 
+### Tool descriptions change how the agent behaves
+My Python code warned that the `is_active` field can be out of date, but that warning was only a code comment, and Claude can't read my code. So it said Stephen was the only active Curry as if that were certain. Adding one sentence to the tool description made it pass the warning on to me and flag Seth Curry as possibly out of date. If Claude needs to know something, it has to be in what Claude actually sees.
+
 ### Handle API keys like passwords
 A key can spend real money. It only belongs in `.env`, never in code or chat. If one leaks, delete it in the Anthropic console and create a new one. Claude.ai subscriptions and API credits are separate, too.
 
@@ -236,12 +258,13 @@ cd agent-app
 5. Ask the agent a question and follow the log. Before you run it, predict how many turns and tool calls it will take.
 6. Change `MAX_TURNS` in `ClaudeService.java` to 1, ask a stats question, and work out why you get that reply. Then change it back.
 7. Read `systemPrompt()` in `ClaudeService.java` and change "Keep answers short" to something else. See how the answers change.
+8. Ask a question you think needs three lookups, then check the log to see whether Claude took the path you expected.
 
 ## Still to learn
 
 - [x] Merging a branch into `main` and pushing to GitHub
 - [x] Creating a Java app with Spring Boot
 - [x] How an AI agent uses tools, and writing the loop myself
-- [ ] Giving the agent more tools
+- [x] Giving the agent more tools
 - [ ] Building a web page for the app
 - [ ] Automated tests: programs that re-check my code with one command, including a fake Claude so they cost nothing
