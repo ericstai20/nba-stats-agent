@@ -122,6 +122,26 @@ That's the difference between an agent and a fixed script: the question decides 
 - **Loops need a limit.** Every trip is a paid request, so the limit stops a confused agent from spending forever.
 - **Claude has no clock.** The instructions tell it today's date, or it wouldn't know which season "this season" means.
 
+## How the web page works
+
+`index.html` lives in `agent-app/src/main/resources/static/`, and Spring Boot automatically serves files from that folder. It has three layers:
+
+| Layer | Job | Analogy |
+|---|---|---|
+| **HTML** | What's on the page | The walls and furniture of a house |
+| **CSS** | How it looks | The paint and decoration |
+| **JavaScript** | What it does when you interact with it | The light switches and plumbing |
+
+When I click **Ask**:
+
+1. JavaScript stops the form's default behavior, which would reload the page.
+2. It disables the buttons and shows "Looking up the stats...".
+3. `fetch` sends my question to `/ask`, the same endpoint my terminal command uses.
+4. `await` waits for the reply without freezing the page.
+5. It shows the answer, or the error, and turns the buttons back on.
+
+The browser runs this code on my computer, while the Java and Python code runs as servers. That's the difference between the **frontend** (what runs in the browser) and the **backend** (what runs on the server).
+
 ## Java and Spring Boot terms
 
 | Term | What it means | Analogy or Python equivalent |
@@ -198,6 +218,12 @@ The instructions tell Claude to base answers only on tool results and to say so 
 ### Tool descriptions change how the agent behaves
 My Python code warned that the `is_active` field can be out of date, but that warning was only a code comment, and Claude can't read my code. So it said Stephen was the only active Curry as if that were certain. Adding one sentence to the tool description made it pass the warning on to me and flag Seth Curry as possibly out of date. If Claude needs to know something, it has to be in what Claude actually sees.
 
+### Show outside text safely on a web page
+The page uses `textContent` rather than `innerHTML` to display answers. `textContent` always treats text as text, while `innerHTML` would make the browser act on any HTML in the answer. I should treat text from outside my code as untrusted, including what an AI writes.
+
+### Protect paid actions from accidents
+The buttons turn off during a request, so a double click can't pay for the same question twice. When an action costs money, it's worth asking how it could happen by accident.
+
 ### Handle API keys like passwords
 A key can spend real money. It only belongs in `.env`, never in code or chat. If one leaks, delete it in the Anthropic console and create a new one. Claude.ai subscriptions and API credits are separate, too.
 
@@ -238,7 +264,9 @@ cd agent-app
 .\mvnw.cmd spring-boot:run
 ```
 
-**Ask the agent a question (each one spends a little of my credits):**
+Then open <http://localhost:8080> in a browser and ask away. Each question spends a little of my credits.
+
+**Ask the agent from the terminal instead (this spends credits too):**
 ```powershell
 Invoke-RestMethod -Uri http://127.0.0.1:8080/ask -Method Post -ContentType 'application/json' -Body '{"question":"Who scored more per game in 2025-26, Stephen Curry or Kevin Durant?"}'
 ```
@@ -259,6 +287,8 @@ cd agent-app
 6. Change `MAX_TURNS` in `ClaudeService.java` to 1, ask a stats question, and work out why you get that reply. Then change it back.
 7. Read `systemPrompt()` in `ClaudeService.java` and change "Keep answers short" to something else. See how the answers change.
 8. Ask a question you think needs three lookups, then check the log to see whether Claude took the path you expected.
+9. Change `--accent` in the page's CSS to your favorite team's color. Restart the Java app to see it.
+10. In your browser, press `F12` and open the **Network** tab, then ask a question and find the request to `/ask`.
 
 ## Still to learn
 
@@ -266,5 +296,5 @@ cd agent-app
 - [x] Creating a Java app with Spring Boot
 - [x] How an AI agent uses tools, and writing the loop myself
 - [x] Giving the agent more tools
-- [ ] Building a web page for the app
+- [x] Building a web page for the app
 - [ ] Automated tests: programs that re-check my code with one command, including a fake Claude so they cost nothing
