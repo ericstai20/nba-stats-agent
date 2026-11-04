@@ -37,8 +37,17 @@ SEASON_HELP = "Season such as 2025-26. Defaults to the current season."
 @app.exception_handler(RequestValidationError)
 def handle_invalid_input(request: Request, error: RequestValidationError):
     """Replace FastAPI's detailed default format for bad input, like season=banana."""
-    problems = [f"{e['loc'][-1]}: {e['msg']}" for e in error.errors()]
+    problems = [_describe_problem(e) for e in error.errors()]
     return JSONResponse(status_code=400, content={"error": "; ".join(problems)})
+
+
+def _describe_problem(problem):
+    """Turn one validation problem into a short message a person can act on."""
+    field = problem["loc"][-1]
+    # The default message for a bad season shows the raw pattern, which is hard to read.
+    if field == "season" and problem["type"] == "string_pattern_mismatch":
+        return "season: must look like 2025-26"
+    return f"{field}: {problem['msg']}"
 
 
 @app.exception_handler(nba_client.PlayerNotFoundError)

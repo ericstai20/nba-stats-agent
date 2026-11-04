@@ -6,6 +6,7 @@ the other.
 """
 
 import logging
+import math
 import re
 import threading
 import time
@@ -42,11 +43,12 @@ LEADER_STATS = {
 # the league." These rules approximate the NBA's own stat-leader minimums.
 MIN_GAMES_SHARE = 0.70  # must have played 70% of the games played so far
 SEASON_LENGTH_GAMES = 82
-# Percentage stat -> (column for shots made, shots needed over a full 82-game season)
+# Percentage stat -> (column for shots made, friendly label, shots needed over a
+# full 82-game season)
 MIN_MAKES_FOR_PERCENTAGE = {
-    "FG_PCT": ("FGM", 300),
-    "FG3_PCT": ("FG3M", 82),
-    "FT_PCT": ("FTM", 125),
+    "FG_PCT": ("FGM", "field goals made", 300),
+    "FG3_PCT": ("FG3M", "three-pointers made", 82),
+    "FT_PCT": ("FTM", "free throws made", 125),
 }
 
 
@@ -260,14 +262,15 @@ def get_league_leaders(stat, season=None, top_n=10):
     games_so_far = max(r["GP"] for r in rows)
 
     if stat in MIN_MAKES_FOR_PERCENTAGE:
-        made_column, full_season_makes = MIN_MAKES_FOR_PERCENTAGE[stat]
+        made_column, made_label, full_season_makes = MIN_MAKES_FOR_PERCENTAGE[stat]
         needed = full_season_makes * games_so_far / SEASON_LENGTH_GAMES
         qualified = [r for r in rows if r["GP"] * r[made_column] >= needed]
-        qualification = f"at least about {round(needed)} total {made_column} so far"
+        qualification = f"at least about {round(needed)} {made_label} so far"
     else:
-        needed = MIN_GAMES_SHARE * games_so_far
+        # Games are whole numbers, so round up: if 57.4 are needed, 57 isn't enough.
+        needed = math.ceil(MIN_GAMES_SHARE * games_so_far)
         qualified = [r for r in rows if r["GP"] >= needed]
-        qualification = f"at least {round(needed)} games played"
+        qualification = f"at least {needed} games played"
 
     qualified.sort(key=lambda r: r[stat], reverse=True)
 
