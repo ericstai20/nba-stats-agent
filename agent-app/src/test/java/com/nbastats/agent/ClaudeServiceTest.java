@@ -6,6 +6,7 @@ import static com.nbastats.agent.FakeServer.claudeToolUse;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,11 +48,60 @@ class ClaudeServiceTest {
 		return messages.get(messages.size() - 1);
 	}
 
+	/** Asks a question at the start of a conversation and returns the answer's text. */
+	private String ask(String question) {
+		return service.ask(List.of(), question).text();
+	}
+
+	@Test
+	void sendsEarlierQuestionsAndAnswersBeforeTheNewQuestion() throws IOException {
+		fakeClaude.reply(200, claudeText("He averaged 8 assists."));
+
+		service.ask(List.of(new ConversationStore.Exchange("Who led in scoring?", "Luka Doncic.")),
+				"How about his assists?");
+
+		JsonNode messages = JSON.readTree(fakeClaude.requests().getFirst().body()).get("messages");
+		assertThat(messages).hasSize(3);
+		assertThat(messages.get(0).get("role").asText()).isEqualTo("user");
+		assertThat(messages.get(0).toString()).contains("Who led in scoring?");
+		assertThat(messages.get(1).get("role").asText()).isEqualTo("assistant");
+		assertThat(messages.get(1).toString()).contains("Luka Doncic.");
+		assertThat(messages.get(2).toString()).contains("How about his assists?");
+	}
+
+	@Test
+	void marksRealAnswersAsComplete() {
+		fakeClaude.reply(200, claudeText("An answer."));
+
+		assertThat(service.ask(List.of(), "A question").complete()).isTrue();
+	}
+
+	@Test
+	void marksAnEmptyAnswerAsIncompleteSoItIsNeverRemembered() {
+		fakeClaude.reply(200, claudeMessage("end_turn"));
+
+		ClaudeService.Answer answer = service.ask(List.of(), "A question");
+
+		assertThat(answer.complete()).isFalse();
+		assertThat(answer.text()).contains("didn't write an answer");
+	}
+
+	@Test
+	void marksGivingUpAsIncomplete() {
+		for (int turn = 1; turn <= 10; turn++) {
+			fakeClaude.reply(200, claudeMessage("tool_use",
+					claudeToolUse("call_" + turn, "search_players", "{\"name\":\"Curry\"}")));
+			fakeStats.reply(200, "{\"players\":[]}");
+		}
+
+		assertThat(service.ask(List.of(), "Keep looking forever").complete()).isFalse();
+	}
+
 	@Test
 	void returnsClaudesAnswerWhenNoToolIsNeeded() {
 		fakeClaude.reply(200, claudeText("Basketball was invented in 1891."));
 
-		String answer = service.ask("When was basketball invented?");
+		String answer = ask("When was basketball invented?");
 
 		assertThat(answer).isEqualTo("Basketball was invented in 1891.");
 		assertThat(fakeClaude.requests()).hasSize(1);
@@ -65,7 +115,7 @@ class ClaudeServiceTest {
 		fakeStats.reply(200, "{\"points_per_game\":27.5}");
 		fakeClaude.reply(200, claudeText("LeBron averaged 27.5 points."));
 
-		String answer = service.ask("How many points did LeBron average?");
+		String answer = ask("How many points did LeBron average?");
 
 		assertThat(answer).isEqualTo("LeBron averaged 27.5 points.");
 		assertThat(fakeStats.requests()).singleElement().satisfies(request -> {
@@ -87,7 +137,7 @@ class ClaudeServiceTest {
 		fakeStats.reply(200, "{\"players\":[]}");
 		fakeClaude.reply(200, claudeText("Done."));
 
-		service.ask("Which Currys played in the NBA?");
+		ask("Which Currys played in the NBA?");
 
 		// Claude has no memory, so the second request holds: question, tool request, result.
 		JsonNode messages = JSON.readTree(fakeClaude.requests().get(1).body()).get("messages");
@@ -106,7 +156,7 @@ class ClaudeServiceTest {
 		fakeStats.reply(200, "{\"points_per_game\":25.0}");
 		fakeClaude.reply(200, claudeText("Curry scored more."));
 
-		service.ask("Who scored more, Curry or Durant?");
+		ask("Who scored more, Curry or Durant?");
 
 		JsonNode results = lastMessageOfRequest(1).get("content");
 		assertThat(results).hasSize(2);
@@ -121,7 +171,7 @@ class ClaudeServiceTest {
 		fakeStats.reply(200, "{\"leaders\":[]}");
 		fakeClaude.reply(200, claudeText("Done."));
 
-		service.ask("Who are the top 3 in assists?");
+		ask("Who are the top 3 in assists?");
 
 		assertThat(fakeStats.requests().getFirst().uri())
 				.startsWith("/leaders")
@@ -137,7 +187,7 @@ class ClaudeServiceTest {
 		fakeStats.reply(404, "{\"error\":\"No player found matching 'Nobody'.\"}");
 		fakeClaude.reply(200, claudeText("I couldn't find that player."));
 
-		String answer = service.ask("How is Nobody playing?");
+		String answer = ask("How is Nobody playing?");
 
 		assertThat(answer).isEqualTo("I couldn't find that player.");
 		JsonNode toolResult = lastMessageOfRequest(1).get("content").get(0);
@@ -150,7 +200,7 @@ class ClaudeServiceTest {
 		fakeClaude.reply(200, claudeMessage("tool_use", claudeToolUse("call_1", "make_coffee", "{}")));
 		fakeClaude.reply(200, claudeText("I can't do that."));
 
-		service.ask("Make me a coffee");
+		ask("Make me a coffee");
 
 		assertThat(lastMessageOfRequest(1).get("content").get(0).get("is_error").asBoolean()).isTrue();
 		assertThat(fakeStats.requests()).isEmpty();
@@ -160,7 +210,7 @@ class ClaudeServiceTest {
 	void reportsARefusalInsteadOfAnEmptyAnswer() {
 		fakeClaude.reply(200, claudeMessage("refusal"));
 
-		assertThat(service.ask("Something Claude declines")).isEqualTo("Claude declined to answer that question.");
+		assertThat(ask("Something Claude declines")).isEqualTo("Claude declined to answer that question.");
 	}
 
 	@Test
@@ -172,7 +222,7 @@ class ClaudeServiceTest {
 			fakeStats.reply(200, "{\"players\":[]}");
 		}
 
-		String answer = service.ask("Keep looking forever");
+		String answer = ask("Keep looking forever");
 
 		assertThat(answer).contains("too many lookups");
 		assertThat(fakeClaude.requests()).hasSize(10);
