@@ -142,6 +142,48 @@ When I click **Ask**:
 
 The browser runs this code on my computer, while the Java and Python code runs as servers. That's the difference between the **frontend** (what runs in the browser) and the **backend** (what runs on the server).
 
+## How the automated tests work
+
+An **automated test** is a small program that runs my code and checks the result. Instead of clicking around after every change, I run one command and find out in seconds whether I broke something.
+
+The hard part is that my code depends on things that are slow, cost money or keep changing: Claude and the NBA's site. So the tests swap those out for stand-ins, like a pilot training in a flight simulator instead of a real plane.
+
+```
+Real app:  Java app -> Claude API (paid, answers vary)
+                    -> Python service -> nba_api -> NBA's site (live data)
+
+Java tests:    Java app -> FakeServer pretending to be Claude
+                        -> FakeServer pretending to be the Python service
+
+Python tests:  Python service -> FakeNbaSite pretending to be nba_api's requests
+```
+
+| File | What it tests |
+|---|---|
+| `stats-service/test_nba_client.py` | Basketball logic: traded players, minimums, ties, finding names |
+| `stats-service/test_main.py` | URLs, status codes and the error format |
+| `agent-app/.../ClaudeServiceTest.java` | The agent loop, using a scripted fake Claude |
+| `agent-app/.../StatsClientTest.java` | How Java calls the Python service |
+| `agent-app/.../AskControllerTest.java` | The `/ask` endpoint |
+
+### Testing terms
+
+| Term | What it means | Analogy |
+|---|---|---|
+| **Assertion** | A line that checks something is true, and fails the test if it isn't | A teacher marking one answer right or wrong |
+| **Arrange, act, assert** | The usual three steps of a test: set up, do the thing, check the result | Set up the experiment, run it, read the result |
+| **Fake** | A simple stand-in for something real | A flight simulator |
+| **Fixture** (pytest) | Setup code a test asks for by naming it as a parameter | Equipment laid out before a lab class |
+| **`monkeypatch`** (pytest) | Swaps something out for one test, then restores it | A substitute teacher for one day |
+| **`@Test`, `@BeforeEach`** (JUnit) | Labels that mark a test, and setup to run before each test | A checklist item, and "wash hands first" |
+| **pytest / JUnit** | The programs that find and run tests in Python and Java | The person running the exam |
+| **Dev dependency** | A package only needed while building, like pytest in `requirements-dev.txt` | Scaffolding that isn't part of the finished house |
+| **Mutation testing** | Breaking the real code on purpose to check that a test notices | A fire drill for the tests |
+
+### What a fake can't tell me
+
+The fake Claude follows my script, so it proves that my code handles a reply correctly. It can't prove that real Claude will choose the right tool or write a good answer. For that, I still need to ask the real app a question now and then.
+
 ## Java and Spring Boot terms
 
 | Term | What it means | Analogy or Python equivalent |
@@ -227,6 +269,18 @@ The buttons turn off during a request, so a double click can't pay for the same 
 ### Handle API keys like passwords
 A key can spend real money. It only belongs in `.env`, never in code or chat. If one leaks, delete it in the Anthropic console and create a new one. Claude.ai subscriptions and API credits are separate, too.
 
+### A passing test doesn't prove much until I've seen it fail
+My first traded-player test had the combined `TOT` row last. Code that ignored `TOT` and grabbed the last row would still have passed, so the test wasn't checking what its name claimed. Moving `TOT` to the middle fixed that. Then we broke the real code on purpose in 19 ways, like raising the loop limit and ignoring refusals, and the tests failed all 19 times.
+
+### Make code easy to test by making its connections changeable
+`ClaudeService` always called Anthropic's real address, so a test couldn't redirect it. Adding one setting, `ANTHROPIC_BASE_URL`, lets the tests point it at a fake server. The real code runs unchanged, including the part that sends real web requests.
+
+### Test what matters, not just what's easy
+The most valuable test here checks that the agent stops after 10 turns. If that limit broke, nothing would look wrong on the page, but a confused agent could keep spending my credits. It's worth asking which bugs would be the most expensive and the hardest to notice.
+
+### Not every warning needs fixing today
+Two warnings appear when the tests run, and neither one fails them. Mockito's says that a way of loading it will stop working in a future Java version. The Python one says the test client prefers a newer package, `httpx2`, over `httpx`. Warnings like these are worth reading and writing down, but they don't have to interrupt what I'm doing.
+
 ## Commands I'll use a lot
 
 Run these in PowerShell, starting from the project folder.
@@ -271,10 +325,18 @@ Then open <http://localhost:8080> in a browser and ask away. Each question spend
 Invoke-RestMethod -Uri http://127.0.0.1:8080/ask -Method Post -ContentType 'application/json' -Body '{"question":"Who scored more per game in 2025-26, Stephen Curry or Kevin Durant?"}'
 ```
 
-**Build the Java app and run its tests:**
+**Build the Java app and run its tests (free, and neither app needs to be running):**
 ```powershell
 cd agent-app
 .\mvnw.cmd test
+```
+
+**Run the Python tests (also free):**
+```powershell
+cd stats-service
+.\venv\Scripts\python.exe -m pip install -r requirements-dev.txt   # only needed once
+.\venv\Scripts\python.exe -m pytest                                # run them all
+.\venv\Scripts\python.exe -m pytest -k traded                      # only tests with "traded" in the name
 ```
 
 ## Practice ideas
@@ -289,6 +351,9 @@ cd agent-app
 8. Ask a question you think needs three lookups, then check the log to see whether Claude took the path you expected.
 9. Change `--accent` in the page's CSS to your favorite team's color. Restart the Java app to see it.
 10. In your browser, press `F12` and open the **Network** tab, then ask a question and find the request to `/ask`.
+11. Change `math.ceil` to `math.floor` in `nba_client.py` and run the Python tests. Read the failure message, work out what it's telling you, then change it back.
+12. If you try practice idea 2 (`FG3A`), write a test for it first and watch it fail, then add the line and watch it pass. This is called **test-driven development**.
+13. Write a Java test for a question that takes three tools in a row, using `ClaudeServiceTest` as a guide.
 
 ## Still to learn
 
@@ -297,4 +362,4 @@ cd agent-app
 - [x] How an AI agent uses tools, and writing the loop myself
 - [x] Giving the agent more tools
 - [x] Building a web page for the app
-- [ ] Automated tests: programs that re-check my code with one command, including a fake Claude so they cost nothing
+- [x] Automated tests: programs that re-check my code with one command, including a fake Claude so they cost nothing
