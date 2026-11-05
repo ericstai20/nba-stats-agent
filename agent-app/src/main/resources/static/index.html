@@ -93,31 +93,57 @@
 			font-weight: 400;
 		}
 
-		#result {
-			margin-top: 1.5rem;
-			padding: 1rem;
+		#conversation:not(:empty) {
+			margin-bottom: 1.5rem;
+		}
+
+		.message {
+			margin-top: 0.75rem;
+			padding: 0.75rem 1rem;
 			border-radius: 8px;
-			background: var(--panel);
 			/* Keeps the line breaks in Claude's answer. */
 			white-space: pre-wrap;
 		}
 
-		#result:empty {
-			display: none;
+		.question {
+			font-weight: 600;
 		}
 
-		#result.loading {
+		.answer {
+			background: var(--panel);
+		}
+
+		.loading {
+			background: var(--panel);
 			color: var(--muted);
 		}
 
-		#result.error {
+		.error {
+			background: var(--panel);
 			color: var(--error);
+		}
+
+		#new-conversation {
+			margin-top: 0.75rem;
+			background: transparent;
+			border-color: var(--muted);
+			color: inherit;
+			font-size: 0.875rem;
+			font-weight: 400;
+		}
+
+		/* The "hidden" attribute needs this, because the rules above set "display". */
+		[hidden] {
+			display: none !important;
 		}
 	</style>
 </head>
 <body>
 	<h1>NBA Stats Agent</h1>
 	<p class="intro">Ask a basketball question, and an AI agent will look up real stats to answer it.</p>
+
+	<!-- aria-live makes screen readers announce new messages when they appear. -->
+	<div id="conversation" aria-live="polite"></div>
 
 	<form id="ask-form">
 		<label for="question">Your question</label>
@@ -134,53 +160,88 @@
 		<button type="button">Who scored more in 2025-26, Stephen Curry or Kevin Durant?</button>
 	</div>
 
-	<!-- aria-live makes screen readers announce the answer when it appears. -->
-	<div id="result" aria-live="polite"></div>
+	<button id="new-conversation" type="button" hidden>New conversation</button>
 
 	<script>
 		const form = document.getElementById("ask-form");
 		const questionInput = document.getElementById("question");
 		const askButton = document.getElementById("ask-button");
-		const result = document.getElementById("result");
+		const conversation = document.getElementById("conversation");
+		const examples = document.querySelector(".examples");
 		const exampleButtons = document.querySelectorAll(".examples button");
+		const newConversationButton = document.getElementById("new-conversation");
 
-		function showResult(text, style) {
+		// The server's "ticket" for this conversation. Null means none has started yet.
+		let conversationId = null;
+
+		function addMessage(text, style) {
+			const message = document.createElement("div");
 			// textContent always displays text as plain text. Using innerHTML here would
 			// be unsafe, because the browser would run any HTML that was in the answer.
-			result.textContent = text;
-			result.className = style;
+			message.textContent = text;
+			message.className = "message " + style;
+			conversation.append(message);
+			return message;
 		}
 
 		// Disabling the buttons during a request stops an accidental double click from
 		// sending, and paying for, the same question twice.
 		function setBusy(busy) {
 			askButton.disabled = busy;
+			newConversationButton.disabled = busy;
 			exampleButtons.forEach((button) => (button.disabled = busy));
+		}
+
+		// The examples only suit a fresh start, and "New conversation" only suits the reverse.
+		function updateButtons() {
+			const started = conversation.childElementCount > 0;
+			examples.hidden = started;
+			newConversationButton.hidden = !started;
 		}
 
 		// "async" lets this function wait for the answer without freezing the page.
 		async function ask(question) {
 			setBusy(true);
-			showResult("Looking up the stats...", "loading");
+			addMessage(question, "question");
+			const loading = addMessage("Looking up the stats...", "loading");
+			updateButtons();
+			questionInput.value = "";
 
 			try {
 				const response = await fetch("/ask", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ question }),
+					body: JSON.stringify({ question, conversationId }),
 				});
 				const data = await response.json();
 
 				if (response.ok) {
-					showResult(data.answer, "");
+					conversationId = data.conversationId;
+					addMessage(data.answer, "answer");
 				} else {
-					showResult(data.error, "error");
+					addMessage(data.error, "error");
+					// 404 means the server has forgotten this conversation, so its ID is useless.
+					if (response.status === 404) {
+						conversationId = null;
+					}
+					restoreQuestion(question);
 				}
 			} catch {
 				// fetch fails like this when the Java app isn't running or can't be reached.
-				showResult("Couldn't reach the app. Check that it's running and try again.", "error");
+				addMessage("Couldn't reach the app. Check that it's running and try again.", "error");
+				restoreQuestion(question);
 			} finally {
+				loading.remove();
 				setBusy(false);
+				questionInput.focus();
+			}
+		}
+
+		// After a failure, put the question back so it doesn't have to be retyped, unless
+		// something new has been typed in the meantime.
+		function restoreQuestion(question) {
+			if (!questionInput.value) {
+				questionInput.value = question;
 			}
 		}
 
@@ -194,10 +255,14 @@
 		});
 
 		exampleButtons.forEach((button) => {
-			button.addEventListener("click", () => {
-				questionInput.value = button.textContent;
-				ask(button.textContent);
-			});
+			button.addEventListener("click", () => ask(button.textContent));
+		});
+
+		newConversationButton.addEventListener("click", () => {
+			conversationId = null;
+			conversation.replaceChildren();
+			updateButtons();
+			questionInput.focus();
 		});
 	</script>
 </body>

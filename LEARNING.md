@@ -73,6 +73,7 @@ It uses the same split as the Python service, with the web in one place and each
 | `AskController.java` | The front counter: takes a question and sends back the answer | `main.py` |
 | `ClaudeService.java` | Runs the agent loop and defines the tools | No equivalent |
 | `StatsClient.java` | Calls the Python service for stats | No equivalent |
+| `ConversationStore.java` | Remembers recent conversations for follow-up questions | No equivalent |
 
 ## How the agent loop works
 
@@ -122,6 +123,55 @@ That's the difference between an agent and a fixed script: the question decides 
 - **Loops need a limit.** Every trip is a paid request, so the limit stops a confused agent from spending forever.
 - **Claude has no clock.** The instructions tell it today's date, or it wouldn't know which season "this season" means.
 
+## How follow-up questions work
+
+Claude has no memory between requests, so "How about his assists?" means nothing on its own. My app has to remember the conversation and send it again with each new question.
+
+It works like a coat check:
+
+1. My first question arrives without a ticket, so the app answers it and saves the question and answer under a new random **conversation ID**.
+2. The reply includes that ID, and the page holds on to it.
+3. My follow-up includes the ID, so the app finds the history and sends it to Claude ahead of the new question.
+
+Here's a real log. Nobody told Claude who "his" meant in the second question. It worked that out from the earlier answer:
+
+```
+Who led the league in scoring in 2025-26?
+Claude asked for get_league_leaders with {stat=PTS, season=2025-26, top_n=3}
+
+How about his assists?
+Claude asked for get_player_stats with {name=Luka Dončić, season=2025-26}
+```
+
+### Choices we made
+
+**Where to keep the conversation:**
+
+| Approach | Good | Bad |
+|---|---|---|
+| The browser sends the whole history each time | The server stays simple | The browser could change what Claude "said", and requests keep growing |
+| **The server keeps it in memory (what I use)** | Simple, and teaches how sessions work | A restart forgets everything |
+| A database | Survives restarts | A lot of extra machinery for an app only I use |
+
+**What to remember:** I only keep questions and final answers, not the raw stats from each lookup. That keeps follow-ups cheap, but Claude has to look a number up again if an earlier answer didn't state it.
+
+### Limits keep costs and memory under control
+
+- **10 exchanges per conversation:** everything kept gets sent to Claude with each question, so a longer history costs more every time.
+- **100 conversations in total:** without a limit, the app's memory use would keep growing for as long as it runs. When the store is full, it forgets the conversation that has gone unused the longest.
+
+### Terms
+
+| Term | What it means | Analogy |
+|---|---|---|
+| **State** | Information a program remembers between requests | A coat check's rack of coats |
+| **Stateless** | Remembers nothing between requests, like Claude's API | A shop that doesn't recognize returning customers |
+| **Session** | One user's series of related requests, tied together by an ID | One visit to the coat check |
+| **UUID** | A long random ID that's practically impossible to guess or repeat | A ticket number nobody could guess |
+| **`synchronized`** | Lets only one request at a time into a piece of code | A single-file line, like the lock in `nba_client.py` |
+| **Memory leak** | Memory use that keeps growing because old data is never removed | A coat check that never gives away unclaimed coats |
+| **`Optional`** | A Java box that either holds a value or is empty, which forces me to handle both | A locker that might be empty |
+
 ## How the web page works
 
 `index.html` lives in `agent-app/src/main/resources/static/`, and Spring Boot automatically serves files from that folder. It has three layers:
@@ -138,7 +188,7 @@ When I click **Ask**:
 2. It disables the buttons and shows "Looking up the stats...".
 3. `fetch` sends my question to `/ask`, the same endpoint my terminal command uses.
 4. `await` waits for the reply without freezing the page.
-5. It shows the answer, or the error, and turns the buttons back on.
+5. It adds the answer, or the error, to the conversation and turns the buttons back on. After an error, it also puts my question back in the box.
 
 The browser runs this code on my computer, while the Java and Python code runs as servers. That's the difference between the **frontend** (what runs in the browser) and the **backend** (what runs on the server).
 
@@ -281,6 +331,15 @@ The most valuable test here checks that the agent stops after 10 turns. If that 
 ### Not every warning needs fixing today
 Two warnings appear when the tests run, and neither one fails them. Mockito's says that a way of loading it will stop working in a future Java version. The Python one says the test client prefers a newer package, `httpx2`, over `httpx`. Warnings like these are worth reading and writing down, but they don't have to interrupt what I'm doing.
 
+### Be careful what an app remembers
+Memory makes mistakes last longer. Refusals and "too many lookups" replies aren't saved, because they'd confuse later questions. An empty answer would be worse: Claude's API rejects empty messages, so saving one would break every later question in that conversation. Failures can stay in the moment, but whatever gets saved comes back on every request.
+
+### Say so when context is lost
+If the app restarts, the page still holds an ID the server has forgotten. The app could treat that as a brand-new conversation, but then "How about his assists?" would arrive with no idea who "his" is. It returns a 404 and explains what happened instead, and it does this before paying for a request to Claude.
+
+### Fakes and the real thing catch different problems
+The tests prove that the history gets sent correctly, but only real Claude could show that it understands "his". So I needed both: the tests for every small detail, for free, and one real question to check the whole idea.
+
 ## Commands I'll use a lot
 
 Run these in PowerShell, starting from the project folder.
@@ -325,6 +384,13 @@ Then open <http://localhost:8080> in a browser and ask away. Each question spend
 Invoke-RestMethod -Uri http://127.0.0.1:8080/ask -Method Post -ContentType 'application/json' -Body '{"question":"Who scored more per game in 2025-26, Stephen Curry or Kevin Durant?"}'
 ```
 
+**Ask a follow-up from the terminal.** Each `/ask` reply includes a `conversationId`. Put it in the next question (this spends credits too):
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:8080/ask -Method Post -ContentType 'application/json' -Body '{"question":"How about his assists?","conversationId":"PASTE-THE-ID-HERE"}'
+```
+
+Accented names can look garbled in Windows PowerShell 5.1, because it guesses the wrong text encoding. The browser page shows them correctly.
+
 **Build the Java app and run its tests (free, and neither app needs to be running):**
 ```powershell
 cd agent-app
@@ -354,6 +420,9 @@ cd stats-service
 11. Change `math.ceil` to `math.floor` in `nba_client.py` and run the Python tests. Read the failure message, work out what it's telling you, then change it back.
 12. If you try practice idea 2 (`FG3A`), write a test for it first and watch it fail, then add the line and watch it pass. This is called **test-driven development**.
 13. Write a Java test for a question that takes three tools in a row, using `ClaudeServiceTest` as a guide.
+14. Ask a question, restart the Java app without refreshing the page, then ask a follow-up. Predict what you'll see first.
+15. Have a conversation with at least three questions, then find the `/ask` request in the browser's **Network** tab and look at the `conversationId` it sends.
+16. Change `MAX_EXCHANGES_PER_CONVERSATION` to 1, ask three linked questions, and see where the agent loses track. Run the tests too, then change it back.
 
 ## Still to learn
 
@@ -363,3 +432,7 @@ cd stats-service
 - [x] Giving the agent more tools
 - [x] Building a web page for the app
 - [x] Automated tests: programs that re-check my code with one command, including a fake Claude so they cost nothing
+- [x] Follow-up questions: remembering a conversation between requests
+- [ ] Continuous integration: running the tests automatically on GitHub
+- [ ] Showing live progress on the page while the agent works
+- [ ] Giving the agent more data, like playoffs, standings and game logs

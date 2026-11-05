@@ -4,6 +4,8 @@ A web app where you ask basketball questions in plain English and an AI agent lo
 
 For example, if you ask "Who led the league in scoring in 2025-26, and how many assists per game did that player average?", the agent finds the scoring leader, looks up that player's assists, and then writes the answer.
 
+You can also ask follow-up questions. After asking who led the league in scoring, you can ask "How about his assists?"
+
 ## How it works
 
 ```
@@ -99,6 +101,7 @@ You only need the install line once.
 ## Limitations
 
 - The agent only knows regular-season stats for players and league leaders. It can't answer questions about things like playoffs, standings or game results.
-- Each question starts from scratch, so follow-up questions don't work yet.
+- Follow-up questions work, but conversations are only kept in memory. Restarting the app or refreshing the page starts over.
+- Each conversation remembers its last 10 questions and answers, and the app keeps the 100 most recently used conversations.
 - The tests use stand-ins, so they can't tell you if Claude's real answers get worse or if the NBA's site changes.
 - The stats come through [nba_api](https://github.com/swar/nba_api), an unofficial package, so they can stop working if the NBA's site changes or blocks requests.

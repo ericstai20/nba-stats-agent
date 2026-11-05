@@ -151,8 +151,18 @@ public class ClaudeService {
 		this.stats = stats;
 	}
 
-	/** Answers one question, looking up stats as many times as Claude needs. */
-	public String ask(String question) {
+	/**
+	 * Claude's reply to a question. "complete" means it's a real answer that's worth
+	 * remembering, unlike a refusal or giving up, which could confuse later questions.
+	 */
+	record Answer(String text, boolean complete) {
+	}
+
+	/**
+	 * Answers one question, looking up stats as many times as Claude needs. The
+	 * history holds the earlier questions and answers of this conversation.
+	 */
+	public Answer ask(List<ConversationStore.Exchange> history, String question) {
 		// The builder holds the whole conversation. Claude doesn't remember earlier
 		// requests, so every request must include everything said so far.
 		MessageCreateParams.Builder conversation = MessageCreateParams.builder()
@@ -168,8 +178,13 @@ public class ClaudeService {
 				// it on a suitable fallback model. This is a beta feature, so the SDK has
 				// no named setting for it yet and we add it to the request by hand.
 				.putAdditionalHeader("anthropic-beta", "server-side-fallback-2026-07-01")
-				.putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
-				.addUserMessage(question);
+				.putAdditionalBodyProperty("fallbacks", JsonValue.from("default"));
+
+		for (ConversationStore.Exchange earlier : history) {
+			conversation.addUserMessage(earlier.question());
+			conversation.addAssistantMessage(earlier.answer());
+		}
+		conversation.addUserMessage(question);
 
 		for (int turn = 1; turn <= MAX_TURNS; turn++) {
 			Message response = client.messages().create(conversation.build());
@@ -177,10 +192,16 @@ public class ClaudeService {
 			logger.info("Turn {}: Claude stopped because of '{}'", turn, stopReason);
 
 			if (StopReason.REFUSAL.equals(stopReason)) {
-				return "Claude declined to answer that question.";
+				return new Answer("Claude declined to answer that question.", false);
 			}
 			if (!StopReason.TOOL_USE.equals(stopReason)) {
-				return textOf(response);
+				String text = textOf(response);
+				if (text.isBlank()) {
+					// Claude's API rejects empty messages, so saving this one would break
+					// every later question in the conversation.
+					return new Answer("Sorry, Claude didn't write an answer. Please try again.", false);
+				}
+				return new Answer(text, true);
 			}
 
 			// Claude wants tool results, so add its message to the conversation first.
@@ -197,7 +218,7 @@ public class ClaudeService {
 		}
 
 		logger.warn("Gave up after {} turns", MAX_TURNS);
-		return "Sorry, that question needed too many lookups. Try asking something more specific.";
+		return new Answer("Sorry, that question needed too many lookups. Try asking something more specific.", false);
 	}
 
 	/** Claude only asks for a tool. This is the code that actually runs it. */
@@ -246,6 +267,10 @@ public class ClaudeService {
 				be out of date. Base your answer only on what the tools return. If a \
 				tool returns an error or doesn't have what you need, say so plainly \
 				instead of guessing.
+
+				The user may ask follow-up questions. Use earlier answers to work out \
+				who or what they mean, such as who "he" is. If you need a number that \
+				an earlier answer didn't state, look it up.
 
 				Keep answers short and mention which season the numbers are from. Write \
 				plain text without Markdown, because the web page shows your answer \
