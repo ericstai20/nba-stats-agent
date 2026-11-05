@@ -137,12 +137,16 @@ public class ClaudeService {
 	private final String model;
 	private final StatsClient stats;
 
-	/** "@Value" fills in each setting from .env when the app starts. */
+	/**
+	 * "@Value" fills in each setting from .env when the app starts. The text after
+	 * the first colon is the default. Tests change the base URL to reach a fake Claude.
+	 */
 	public ClaudeService(
 			@Value("${ANTHROPIC_API_KEY}") String apiKey,
 			@Value("${ANTHROPIC_MODEL:claude-sonnet-5-5}") String model,
+			@Value("${ANTHROPIC_BASE_URL:https://api.anthropic.com}") String baseUrl,
 			StatsClient stats) {
-		this.client = AnthropicOkHttpClient.builder().apiKey(apiKey).build();
+		this.client = AnthropicOkHttpClient.builder().apiKey(apiKey).baseUrl(baseUrl).build();
 		this.model = model;
 		this.stats = stats;
 	}

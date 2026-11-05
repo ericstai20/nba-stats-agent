@@ -79,9 +79,26 @@ Open <http://localhost:8080> in your browser.
 
 To stop the apps, press `Ctrl+C` in each terminal.
 
+## Running the tests
+
+The tests use stand-ins for Claude and the NBA's site, so they cost nothing and neither app needs to be running.
+
+```powershell
+# Python tests, from the stats-service folder
+.\venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\venv\Scripts\python.exe -m pytest
+```
+
+You only need the install line once.
+
+```powershell
+# Java tests, from the agent-app folder
+.\mvnw.cmd test
+```
+
 ## Limitations
 
 - The agent only knows regular-season stats for players and league leaders. It can't answer questions about things like playoffs, standings or game results.
 - Each question starts from scratch, so follow-up questions don't work yet.
-- The only automated test checks that the Java app starts.
+- The tests use stand-ins, so they can't tell you if Claude's real answers get worse or if the NBA's site changes.
 - The stats come through [nba_api](https://github.com/swar/nba_api), an unofficial package, so they can stop working if the NBA's site changes or blocks requests.

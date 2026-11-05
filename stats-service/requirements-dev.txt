@@ -1,0 +1,5 @@
+# Extra packages for running the tests. The app itself doesn't need these.
+# The next line also installs everything in requirements.txt.
+-r requirements.txt
+pytest==9.2.0
+httpx==0.28.1
