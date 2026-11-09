@@ -234,6 +234,33 @@ Python tests:  Python service -> FakeNbaSite pretending to be nba_api's requests
 
 The fake Claude follows my script, so it proves that my code handles a reply correctly. It can't prove that real Claude will choose the right tool or write a good answer. For that, I still need to ask the real app a question now and then.
 
+## How continuous integration works
+
+**Continuous integration (CI)** means a robot runs my tests every time I push code. It's like a teammate who checks every change on a clean computer, so "it works on my machine" problems show up right away.
+
+GitHub's version is called **GitHub Actions**. It runs whatever is described in the files in `.github/workflows/`. Ours is `tests.yml`:
+
+1. **When it runs:** on every push and every pull request (`on: push, pull_request`).
+2. **Jobs:** two jobs, `python` and `java`, run at the same time, each on its own fresh Ubuntu Linux computer. That computer starts with nothing of mine on it.
+3. **Steps in each job:** download the code (`actions/checkout`), install the language (`actions/setup-python` / `actions/setup-java`), then run the tests.
+4. **The result:** a ✅ or ❌ next to the commit on GitHub, and the badge at the top of the README shows the latest result on `main`.
+
+### CI terms
+
+| Term | Meaning |
+|---|---|
+| **Workflow** | One automated process, described in a YAML file in `.github/workflows/` |
+| **YAML** | A settings file format where indentation shows what belongs to what (like Python) |
+| **Job** | A group of steps that runs on one computer. Separate jobs run in parallel |
+| **Step** | One command (`run:`) or one ready-made action (`uses:`) |
+| **Action** | A reusable step someone else wrote, like `actions/setup-java@v5`. The `@v5` picks the version |
+| **Runner** | The computer GitHub lends us to run a job (`runs-on: ubuntu-latest`) |
+| **Cache** | Saved downloads (pip packages, Maven libraries) reused between runs, so later runs are faster |
+| **Badge** | A small image that GitHub keeps updated with the latest result |
+
+### Why no API key is needed in CI
+The tests use a fake Claude and a fake key (`ANTHROPIC_API_KEY=test-key` in `AgentAppApplicationTests`), so the robot never needs my real key. If a workflow ever did need a secret, it would go in the repo's **Settings → Secrets**, never in the YAML file, because the YAML file is public.
+
 ## Java and Spring Boot terms
 
 | Term | What it means | Analogy or Python equivalent |
@@ -340,6 +367,12 @@ If the app restarts, the page still holds an ID the server has forgotten. The ap
 ### Fakes and the real thing catch different problems
 The tests prove that the history gets sent correctly, but only real Claude could show that it understands "his". So I needed both: the tests for every small detail, for free, and one real question to check the whole idea.
 
+### Windows and Linux treat files differently
+Linux only runs a file if it's marked **executable**, and Windows doesn't track that at all. Git stored `mvnw` as `100644` ("not executable"), so the robot's Linux computer would have stopped with "Permission denied". `git update-index --chmod=+x agent-app/mvnw` changed it to `100755` ("executable"). Line endings are a similar trap: Windows uses `CRLF` and Linux uses `LF`. We checked, and Git already stores `mvnw` with `LF`. CI is useful precisely because it runs on a different kind of computer from mine.
+
+### Check before panicking
+Right after pushing, GitHub's API said there were zero runs. A few seconds later the run showed up. Some systems take a moment to catch up, so it's worth checking again before deciding something is broken.
+
 ## Commands I'll use a lot
 
 Run these in PowerShell, starting from the project folder.
@@ -423,6 +456,7 @@ cd stats-service
 14. Ask a question, restart the Java app without refreshing the page, then ask a follow-up. Predict what you'll see first.
 15. Have a conversation with at least three questions, then find the `/ask` request in the browser's **Network** tab and look at the `conversationId` it sends.
 16. Change `MAX_EXCHANGES_PER_CONVERSATION` to 1, ask three linked questions, and see where the agent loses track. Run the tests too, then change it back.
+17. Make CI fail on purpose: on a practice branch, break a test (for example, change `math.ceil` to `math.floor`), push, and watch the ❌ appear on GitHub. Open the failed run and find the error in the log. Then fix it, push again, and delete the branch. (A check you've never seen fail doesn't prove much, just like a test.)
 
 ## Still to learn
 
@@ -433,6 +467,6 @@ cd stats-service
 - [x] Building a web page for the app
 - [x] Automated tests: programs that re-check my code with one command, including a fake Claude so they cost nothing
 - [x] Follow-up questions: remembering a conversation between requests
-- [ ] Continuous integration: running the tests automatically on GitHub
+- [x] Continuous integration: running the tests automatically on GitHub
 - [ ] Showing live progress on the page while the agent works
 - [ ] Giving the agent more data, like playoffs, standings and game logs
