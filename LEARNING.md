@@ -370,6 +370,15 @@ The tests prove that the history gets sent correctly, but only real Claude could
 ### Windows and Linux treat files differently
 Linux only runs a file if it's marked **executable**, and Windows doesn't track that at all. Git stored `mvnw` as `100644` ("not executable"), so the robot's Linux computer would have stopped with "Permission denied". `git update-index --chmod=+x agent-app/mvnw` changed it to `100755` ("executable"). Line endings are a similar trap: Windows uses `CRLF` and Linux uses `LF`. We checked, and Git already stores `mvnw` with `LF`. CI is useful precisely because it runs on a different kind of computer from mine.
 
+### Capital letters in file names matter on GitHub
+Windows treats `Screenshot.png` and `screenshot.png` as the same file, but Linux (and so GitHub) treats them as different. If the README linked to one spelling and the file had the other, the image would work on my computer and be broken on GitHub. Using all-lowercase file names avoids the problem. Windows can also ignore a rename that only changes capitals, so it's safer to rename in two steps (`Screenshot.png` → `tmp.png` → `screenshot.png`).
+
+### Add alt text to images
+In Markdown, `![description](path)` shows an image. The description is **alt text**: screen readers read it aloud to blind users, and it appears if the image can't load. A useful description says what the image shows, not just "screenshot".
+
+### Make the project easy to judge quickly
+Someone reviewing a project might give it 30 seconds and won't install anything. A screenshot near the top of the README and a passing-tests badge show that it works without them running it.
+
 ### Check before panicking
 Right after pushing, GitHub's API said there were zero runs. A few seconds later the run showed up. Some systems take a moment to catch up, so it's worth checking again before deciding something is broken.
 

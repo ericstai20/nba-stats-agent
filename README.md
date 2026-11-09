@@ -4,6 +4,8 @@
 
 A web app where you ask basketball questions in plain English and an AI agent looks up real stats to answer them.
 
+![The app answering "Who led the league in scoring in 2025-26, and how many assists did he average?" and then the follow-up "how about his rebounds?"](docs/screenshot.png)
+
 For example, if you ask "Who led the league in scoring in 2025-26, and how many assists per game did that player average?", the agent finds the scoring leader, looks up that player's assists, and then writes the answer.
 
 You can also ask follow-up questions. After asking who led the league in scoring, you can ask "How about his assists?"
