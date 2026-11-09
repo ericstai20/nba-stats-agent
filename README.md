@@ -1,5 +1,7 @@
 # NBA Stats AI Agent
 
+[![Tests](https://github.com/ericstai20/nba-stats-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/ericstai20/nba-stats-agent/actions/workflows/tests.yml)
+
 A web app where you ask basketball questions in plain English and an AI agent looks up real stats to answer them.
 
 For example, if you ask "Who led the league in scoring in 2025-26, and how many assists per game did that player average?", the agent finds the scoring leader, looks up that player's assists, and then writes the answer.
@@ -83,7 +85,7 @@ To stop the apps, press `Ctrl+C` in each terminal.
 
 ## Running the tests
 
-The tests use stand-ins for Claude and the NBA's site, so they cost nothing and neither app needs to be running.
+The tests use stand-ins for Claude and the NBA's site, so they cost nothing and neither app needs to be running. GitHub also runs both test suites automatically on every push (see [.github/workflows/tests.yml](.github/workflows/tests.yml)).
 
 ```powershell
 # Python tests, from the stats-service folder

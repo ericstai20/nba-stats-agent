@@ -1,0 +1,57 @@
+# GitHub Actions reads every file in .github/workflows/ and runs it automatically.
+# This one runs both test suites on a fresh Linux computer each time code is pushed,
+# so a broken change shows up as a red X on GitHub instead of surprising you later.
+
+name: Tests
+
+# "on" says WHEN to run: on every push, and on every pull request.
+on:
+  push:
+  pull_request:
+
+# "jobs" run at the same time, each on its own fresh computer.
+jobs:
+  python:
+    name: Python stats-service
+    runs-on: ubuntu-latest
+    # Run every command in this job from the stats-service folder.
+    defaults:
+      run:
+        working-directory: stats-service
+    steps:
+      # Download this repository's code onto the computer.
+      - uses: actions/checkout@v5
+
+      # Install Python. "cache: pip" saves downloaded packages between runs to save time.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: stats-service/requirements*.txt
+
+      - name: Install packages
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest
+
+  java:
+    name: Java agent-app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-app
+    steps:
+      - uses: actions/checkout@v5
+
+      # Install Java 25. "temurin" is a free, widely used build of Java.
+      # "cache: maven" saves downloaded libraries between runs.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      # No API key is needed: the tests use a fake Claude and a fake key.
+      - name: Run tests
+        run: ./mvnw --batch-mode test
